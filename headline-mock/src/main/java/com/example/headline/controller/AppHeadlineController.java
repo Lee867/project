@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/app/headline")
+@RequestMapping(value = "/app/headline", produces = "application/json;charset=UTF-8")
 public class AppHeadlineController {
 
     private final AppHeadlineService appHeadlineService;

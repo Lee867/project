@@ -1,61 +1,65 @@
 package com.example.headline.service;
 
+import com.example.headline.mock.AppQaMockData;
 import org.springframework.stereotype.Service;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 @Service
 public class AppQaService {
 
-    // 智能问答：根据 verbosity、thinking、traceable 返回不同形态的答案。
-    public Map<String, Object> ask(Map<String, Object> request) {
-        String query = request.get("query").toString();
-        boolean traceable = booleanValue(request.get("traceable"), true);
-        return apiResponse(Map.of(
-                "answer", answerText(query, request),
-                "chart", chartData(query),
-                "citations", traceable ? citations() : List.of()
-        ));
+    private final AppQaMockData mockData;
+
+    public AppQaService(AppQaMockData mockData) {
+        this.mockData = mockData;
     }
 
-    // 按回答详细程度生成不同答案文本，模拟真实问答的多种输出风格。
-    private String answerText(String query, Map<String, Object> request) {
+    public Map<String, Object> ask(Map<String, Object> request) {
+        // 非流式响应：根据 verbosity/thinking 选择模板，根据 traceable 决定是否返回引用。
+        String query = request.get("query").toString().trim();
         String verbosity = textOrDefault(request.get("verbosity"), "auto");
         boolean thinking = booleanValue(request.get("thinking"), false);
-        if ("summary".equals(verbosity)) {
-            return "Summary answer for: " + query + ". Key signals point to AI infrastructure and edge devices.";
-        }
-        if ("structured".equals(verbosity)) {
-            return "Structured answer for: " + query + "\n1. Main trend: edge AI adoption.\n2. Evidence: mock reports and research results.\n3. Risk: supply-chain uncertainty.";
-        }
-        if ("full".equals(verbosity)) {
-            return "Full answer for: " + query + ". This response combines report clues, event dynamics, and research results for APP frontend testing.";
-        }
-        if (thinking) {
-            return "Thinking-mode answer for: " + query + ". The reasoning path checks reports, events, and research evidence before giving a conclusion.";
-        }
-        return "Mock answer for: " + query + ". The current evidence suggests continued attention to AI infrastructure and edge computing applications.";
+        boolean traceable = booleanValue(request.get("traceable"), true);
+
+        String template = thinking
+                ? mockData.getThinkingAnswerTemplate()
+                : mockData.getAnswerTemplate(verbosity);
+        String answer = String.format(template, query);
+        Object chart = containsTrendKeyword(query) ? mockData.getTrendChart() : null;
+        List<Map<String, Object>> citations = traceable
+                ? mockData.getCitations()
+                : mockData.getEmptyCitations();
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("answer", answer);
+        data.put("chart", chart);
+        data.put("citations", citations);
+        return apiResponse(data);
     }
 
-    // 当问题包含 trend 或趋势时返回一个简单 ECharts option；否则返回空对象。
-    private Map<String, Object> chartData(String query) {
+    public String streamAsk(Map<String, Object> request) {
+        // Mock 阶段不做真正逐 token 推送，只返回符合 SSE 格式的两段 data。
+        String query = request.get("query").toString().trim();
+        String verbosity = textOrDefault(request.get("verbosity"), "auto");
+        boolean thinking = booleanValue(request.get("thinking"), false);
+        String template = thinking
+                ? mockData.getThinkingAnswerTemplate()
+                : mockData.getAnswerTemplate(verbosity);
+        String answer = String.format(template, query);
+        String escaped = answer
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\r", "\\r")
+                .replace("\n", "\\n");
+        return "data: {\"delta\":\"" + escaped + "\",\"done\":false}\n\n"
+                + "data: {\"delta\":\"\",\"done\":true}\n\n";
+    }
+
+    private boolean containsTrendKeyword(String query) {
         String lower = query.toLowerCase();
-        if (!lower.contains("trend") && !query.contains("趋势")) {
-            return Map.of();
-        }
-        return Map.of(
-                "chart_type", "line",
-                "x_axis", List.of("2024", "2025", "2026"),
-                "series", List.of(Map.of("name", "hotness", "data", List.of(30, 55, 86)))
-        );
-    }
-
-    private List<Map<String, Object>> citations() {
-        return List.of(
-                Map.of("document_id", "doc_001", "document_title", "AI chip and edge computing trend report", "quote", "AI chips and edge computing are moving into large-scale applications."),
-                Map.of("document_id", "research_001", "document_title", "Edge AI Computing Architecture Research", "quote", "Edge AI adoption continues to rise.")
-        );
+        return lower.contains("trend") || query.contains("趋势");
     }
 
     private boolean booleanValue(Object value, boolean defaultValue) {
@@ -63,10 +67,17 @@ public class AppQaService {
     }
 
     private String textOrDefault(Object value, String defaultValue) {
-        return value == null || value.toString().trim().isEmpty() ? defaultValue : value.toString();
+        if (!(value instanceof String text) || text.trim().isEmpty()) {
+            return defaultValue;
+        }
+        return text.trim();
     }
 
     private Map<String, Object> apiResponse(Object data) {
-        return Map.of("data", data, "detail", "success", "status_code", 200);
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("data", data);
+        response.put("detail", "\u6210\u529f");
+        response.put("status_code", 200);
+        return response;
     }
 }

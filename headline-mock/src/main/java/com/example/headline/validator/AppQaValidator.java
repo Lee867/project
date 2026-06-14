@@ -4,6 +4,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -12,17 +13,20 @@ import java.util.Set;
 public class AppQaValidator {
 
     private static final Set<String> KNOWLEDGE_TYPES = Set.of("document", "entity", "relation", "event", "topic");
-    private static final Set<String> KNOWLEDGE_IDS = Set.of("doc_001", "doc_002", "research_001", "report_001", "topic_001", "entity_001", "relation_001");
     private static final Set<String> VERBOSITY = Set.of("auto", "summary", "structured", "full");
 
-    // 问答请求校验：query/session_id 必填，其余开关和枚举值按白名单校验。
+    // 问答请求校验：Request body 字段严格按 OpenAPI 类型校验。
     public ResponseEntity<Map<String, Object>> validateAsk(Map<String, Object> request) {
-        if (isBlank(request.get("query"))) {
-            return missing("query");
+        ResponseEntity<Map<String, Object>> queryError = validateRequiredString(request, "query");
+        if (queryError != null) {
+            return queryError;
         }
-        if (isBlank(request.get("session_id"))) {
-            return missing("session_id");
+
+        ResponseEntity<Map<String, Object>> sessionError = validateRequiredString(request, "session_id");
+        if (sessionError != null) {
+            return sessionError;
         }
+
         if (!isOptionalBoolean(request.get("thinking"))) {
             return valueError("thinking", "thinking must be a boolean");
         }
@@ -32,14 +36,28 @@ public class AppQaValidator {
         if (!isOptionalBoolean(request.get("is_stream"))) {
             return valueError("is_stream", "is_stream must be a boolean");
         }
-        if (!isOptionalIn(request.get("verbosity"), VERBOSITY)) {
+        if (!isOptionalVerbosity(request.get("verbosity"))) {
             return valueError("verbosity", "verbosity must be auto, summary, structured, or full");
         }
         return validateKnowledgeSources(request.get("knowledge_sources"));
     }
 
-    // 知识来源校验：每项都需要 knowledge_type 和 knowledge_id，且必须在白名单内。
+    private ResponseEntity<Map<String, Object>> validateRequiredString(Map<String, Object> request, String field) {
+        Object value = request.get(field);
+        if (value == null) {
+            return missing(field);
+        }
+        if (!(value instanceof String text)) {
+            return valueError(field, field + " must be a string");
+        }
+        if (text.trim().isEmpty()) {
+            return valueError(field, field + " must not be blank");
+        }
+        return null;
+    }
+
     private ResponseEntity<Map<String, Object>> validateKnowledgeSources(Object value) {
+        // knowledge_sources 允许空数组；knowledge_id 不做白名单限制，只要求非空字符串。
         if (value == null) {
             return null;
         }
@@ -51,17 +69,30 @@ public class AppQaValidator {
             if (!(source instanceof Map<?, ?> sourceMap)) {
                 return valueError("knowledge_sources." + i, "each knowledge source must be an object");
             }
-            if (isBlank(sourceMap.get("knowledge_type"))) {
+
+            Object knowledgeType = sourceMap.get("knowledge_type");
+            if (knowledgeType == null) {
                 return missing("knowledge_sources." + i + ".knowledge_type");
             }
-            if (!isIn(sourceMap.get("knowledge_type"), KNOWLEDGE_TYPES)) {
+            if (!(knowledgeType instanceof String typeText)) {
+                return valueError("knowledge_sources." + i + ".knowledge_type", "knowledge_type must be a string");
+            }
+            if (typeText.trim().isEmpty()) {
+                return valueError("knowledge_sources." + i + ".knowledge_type", "knowledge_type must not be blank");
+            }
+            if (!KNOWLEDGE_TYPES.contains(typeText.trim())) {
                 return valueError("knowledge_sources." + i + ".knowledge_type", "knowledge_type must be one of " + KNOWLEDGE_TYPES);
             }
-            if (isBlank(sourceMap.get("knowledge_id"))) {
+
+            Object knowledgeId = sourceMap.get("knowledge_id");
+            if (knowledgeId == null) {
                 return missing("knowledge_sources." + i + ".knowledge_id");
             }
-            if (!isIn(sourceMap.get("knowledge_id"), KNOWLEDGE_IDS)) {
-                return valueError("knowledge_sources." + i + ".knowledge_id", "knowledge_id must be one of mock knowledge ids");
+            if (!(knowledgeId instanceof String idText)) {
+                return valueError("knowledge_sources." + i + ".knowledge_id", "knowledge_id must be a string");
+            }
+            if (idText.trim().isEmpty()) {
+                return valueError("knowledge_sources." + i + ".knowledge_id", "knowledge_id must not be blank");
             }
         }
         return null;
@@ -76,24 +107,21 @@ public class AppQaValidator {
     }
 
     private ResponseEntity<Map<String, Object>> error(String field, String message, String type) {
-        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
-                "detail", List.of(Map.of("loc", List.of("body", field), "msg", message, "type", type))
-        ));
-    }
+        Map<String, Object> errorItem = new LinkedHashMap<>();
+        errorItem.put("loc", List.of("body", field));
+        errorItem.put("msg", message);
+        errorItem.put("type", type);
 
-    private boolean isBlank(Object value) {
-        return value == null || value.toString().trim().isEmpty();
-    }
-
-    private boolean isIn(Object value, Set<String> allowed) {
-        return value instanceof String text && allowed.contains(text);
-    }
-
-    private boolean isOptionalIn(Object value, Set<String> allowed) {
-        return value == null || isIn(value, allowed);
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("detail", List.of(errorItem));
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(response);
     }
 
     private boolean isOptionalBoolean(Object value) {
         return value == null || value instanceof Boolean;
+    }
+
+    private boolean isOptionalVerbosity(Object value) {
+        return value == null || value instanceof String text && VERBOSITY.contains(text.trim());
     }
 }

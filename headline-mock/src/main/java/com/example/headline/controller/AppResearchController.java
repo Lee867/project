@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/app/research")
+@RequestMapping(value = "/app/research", produces = "application/json;charset=UTF-8")
 public class AppResearchController {
 
     private final AppResearchService appResearchService;

@@ -1,11 +1,13 @@
 package com.example.headline.validator;
 
+import com.example.headline.mock.AppResearchMockData;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -13,68 +15,96 @@ import java.util.Set;
 @Component
 public class AppResearchValidator {
 
-    private static final Set<String> DOCUMENT_IDS = Set.of("research_001", "research_002", "research_003", "research_004");
-    private static final Set<String> AUTHOR_IDS = Set.of("author_001", "author_002", "author_003");
-    private static final Set<String> INSTITUTION_IDS = Set.of("inst_001", "inst_002", "inst_003");
     private static final Set<String> CITATION_TYPES = Set.of("reference", "secondary_reference", "co_citation", "cited_by", "secondary_cited_by", "co_cited");
     private static final Set<String> GRANULARITIES = Set.of("year", "quarter");
     private static final Set<String> NODE_SIZE_METRICS = Set.of("PAPER_COUNT", "CITATION", "PATENT_COUNT");
     private static final Set<String> TARGET_TYPES = Set.of("author", "institution");
     private static final Set<String> EXPORT_FORMATS = Set.of("word", "pdf", "excel");
 
-    // GET 查询中的 document_id 校验：meta 和 citation_list 复用。
-    public ResponseEntity<Map<String, Object>> validateDocumentIdQuery(Map<String, Object> request) {
-        return validateRequiredAllowed(request, "document_id", DOCUMENT_IDS, "query", "document_id must be one of " + DOCUMENT_IDS);
+    private final AppResearchMockData mockData;
+
+    public AppResearchValidator(AppResearchMockData mockData) {
+        this.mockData = mockData;
     }
 
-    // 引用列表校验：document_id、citation_type、分页参数都要合法。
+    public ResponseEntity<Map<String, Object>> validateDocumentIdQuery(Map<String, Object> request) {
+        ResponseEntity<Map<String, Object>> error = validateQueryDocumentId(request);
+        return error;
+    }
+
     public ResponseEntity<Map<String, Object>> validateCitationList(Map<String, Object> request) {
-        ResponseEntity<Map<String, Object>> documentError = validateDocumentIdQuery(request);
+        ResponseEntity<Map<String, Object>> documentError = validateQueryDocumentId(request);
         if (documentError != null) {
             return documentError;
         }
-        ResponseEntity<Map<String, Object>> citationError = validateRequiredAllowed(request, "citation_type", CITATION_TYPES, "query", "citation_type must be one of " + CITATION_TYPES);
-        return citationError == null ? validatePage(request, "query") : citationError;
+        ResponseEntity<Map<String, Object>> citationError = validateRequiredQueryString(request, "citation_type");
+        if (citationError != null) {
+            return citationError;
+        }
+        String citationType = ((String) request.get("citation_type")).trim();
+        if (!mockData.hasCitationType(citationType)) {
+            return valueError("citation_type", "citation_type is not supported", "query");
+        }
+        return validateQueryPage(request);
     }
 
-    // 作者合作图谱校验：author_ids 必须是非空数组，hops 最大为 3。
     public ResponseEntity<Map<String, Object>> validateAuthorCollab(Map<String, Object> request) {
-        ResponseEntity<Map<String, Object>> idsError = validateRequiredStringListIn(request, "author_ids", AUTHOR_IDS, "author_ids must be an array using allowed author ids");
-        return idsError == null ? validateHops(request) : idsError;
+        ResponseEntity<Map<String, Object>> idsError = validateRequiredStringList(request, "author_ids", "body");
+        if (idsError != null) {
+            return idsError;
+        }
+        for (Object authorId : (List<?>) request.get("author_ids")) {
+            if (!mockData.hasAuthorId(authorId.toString().trim())) {
+                return valueError("author_ids", "author_ids contains unsupported author id", "body");
+            }
+        }
+        return validateHops(request);
     }
 
-    // 机构合作图谱校验：institution_ids 必须是非空数组，hops 最大为 3。
     public ResponseEntity<Map<String, Object>> validateInstitutionCollab(Map<String, Object> request) {
-        ResponseEntity<Map<String, Object>> idsError = validateRequiredStringListIn(request, "institution_ids", INSTITUTION_IDS, "institution_ids must be an array using allowed institution ids");
-        return idsError == null ? validateHops(request) : idsError;
+        ResponseEntity<Map<String, Object>> idsError = validateRequiredStringList(request, "institution_ids", "body");
+        if (idsError != null) {
+            return idsError;
+        }
+        for (Object institutionId : (List<?>) request.get("institution_ids")) {
+            if (!mockData.hasInstitutionId(institutionId.toString().trim())) {
+                return valueError("institution_ids", "institution_ids contains unsupported institution id", "body");
+            }
+        }
+        return validateHops(request);
     }
 
-    // 技术演化校验：keyword/ipc_code 至少一个，时间范围和图谱参数必须合法。
     public ResponseEntity<Map<String, Object>> validateTechEvolution(Map<String, Object> request) {
-        if (isBlank(request.get("keyword")) && isBlank(request.get("ipc_code"))) {
-            return missing("keyword", "body");
+        if (request.get("keyword") != null && !isNonBlankString(request.get("keyword"))) {
+            return valueError("keyword", "keyword must be a non-empty string", "body");
+        }
+        if (request.get("ipc_code") != null && !isNonBlankString(request.get("ipc_code"))) {
+            return valueError("ipc_code", "ipc_code must be a non-empty string", "body");
         }
         if (!isOptionalIn(request.get("granularity"), GRANULARITIES)) {
             return valueError("granularity", "granularity must be year or quarter", "body");
         }
-        Integer maxNodes = positiveInt(request.get("max_nodes"));
-        if (request.get("max_nodes") != null && maxNodes == null) {
-            return valueError("max_nodes", "max_nodes must be a positive integer", "body");
-        }
-        if (maxNodes != null && maxNodes > 500) {
-            return valueError("max_nodes", "max_nodes must be no greater than 500", "body");
+        if (request.get("max_nodes") != null) {
+            Integer maxNodes = positiveBodyInt(request.get("max_nodes"));
+            if (maxNodes == null || maxNodes > 500) {
+                return valueError("max_nodes", "max_nodes must be a JSON integer from 1 to 500", "body");
+            }
         }
         if (!isOptionalIn(request.get("node_size_metric"), NODE_SIZE_METRICS)) {
-            return valueError("node_size_metric", "node_size_metric must be one of " + NODE_SIZE_METRICS, "body");
+            return valueError("node_size_metric", "node_size_metric must be PAPER_COUNT, CITATION, or PATENT_COUNT", "body");
         }
-        return validateDateRange(request);
+        return validateDateRange(request, "body");
     }
 
-    // 引用趋势校验：document_ids 必须是非空数组，granularity 只支持 year/quarter。
     public ResponseEntity<Map<String, Object>> validateCitationTrend(Map<String, Object> request) {
-        ResponseEntity<Map<String, Object>> idsError = validateRequiredStringListIn(request, "document_ids", DOCUMENT_IDS, "document_ids must be an array using allowed document ids");
+        ResponseEntity<Map<String, Object>> idsError = validateRequiredStringList(request, "document_ids", "body");
         if (idsError != null) {
             return idsError;
+        }
+        for (Object documentId : (List<?>) request.get("document_ids")) {
+            if (!mockData.hasDocumentId(documentId.toString().trim())) {
+                return valueError("document_ids", "document_ids contains unsupported document id", "body");
+            }
         }
         if (!isOptionalIn(request.get("granularity"), GRANULARITIES)) {
             return valueError("granularity", "granularity must be year or quarter", "body");
@@ -82,97 +112,155 @@ public class AppResearchValidator {
         return null;
     }
 
-    // 合作强度校验：target_type 必填，target_ids 可选但必须是数组。
     public ResponseEntity<Map<String, Object>> validateCollabStrength(Map<String, Object> request) {
-        ResponseEntity<Map<String, Object>> targetError = validateRequiredAllowed(request, "target_type", TARGET_TYPES, "body", "target_type must be author or institution");
+        ResponseEntity<Map<String, Object>> targetError = validateRequiredBodyString(request, "target_type");
         if (targetError != null) {
             return targetError;
         }
-        if (request.get("target_ids") != null && !(request.get("target_ids") instanceof List<?>)) {
-            return valueError("target_ids", "target_ids must be an array", "body");
+        String targetType = ((String) request.get("target_type")).trim();
+        if (!TARGET_TYPES.contains(targetType)) {
+            return valueError("target_type", "target_type must be author or institution", "body");
         }
-        return validateDateRange(request);
+        if (request.get("target_ids") != null) {
+            ResponseEntity<Map<String, Object>> idsError = validateOptionalStringList(request, "target_ids", "body");
+            if (idsError != null) {
+                return idsError;
+            }
+        }
+        if (request.get("tech_keyword") != null && !isNonBlankString(request.get("tech_keyword"))) {
+            return valueError("tech_keyword", "tech_keyword must be a non-empty string", "body");
+        }
+        return validateDateRange(request, "body");
     }
 
     public ResponseEntity<Map<String, Object>> validateBriefList(Map<String, Object> request) {
-        return validateRequiredStringListIn(request, "document_ids", DOCUMENT_IDS, "document_ids must be an array using allowed document ids");
+        ResponseEntity<Map<String, Object>> idsError = validateRequiredStringList(request, "document_ids", "body");
+        if (idsError != null) {
+            return idsError;
+        }
+        for (Object documentId : (List<?>) request.get("document_ids")) {
+            if (!mockData.hasDocumentId(documentId.toString().trim())) {
+                return valueError("document_ids", "document_ids contains unsupported document id", "body");
+            }
+        }
+        return null;
     }
 
-    // 导出校验：document_ids 和 export_format 都必须合法。
     public ResponseEntity<Map<String, Object>> validateExport(Map<String, Object> request) {
         ResponseEntity<Map<String, Object>> idsError = validateBriefList(request);
         if (idsError != null) {
             return idsError;
         }
-        return validateRequiredAllowed(request, "export_format", EXPORT_FORMATS, "body", "export_format must be word, pdf, or excel");
-    }
-
-    private ResponseEntity<Map<String, Object>> validateRequiredAllowed(Map<String, Object> request, String field, Set<String> allowed, String location, String message) {
-        if (isBlank(request.get(field))) {
-            return missing(field, location);
+        ResponseEntity<Map<String, Object>> formatError = validateRequiredBodyString(request, "export_format");
+        if (formatError != null) {
+            return formatError;
         }
-        if (!isIn(request.get(field), allowed)) {
-            return valueError(field, message, location);
+        String exportFormat = ((String) request.get("export_format")).trim();
+        if (!EXPORT_FORMATS.contains(exportFormat)) {
+            return valueError("export_format", "export_format must be word, pdf, or excel", "body");
         }
         return null;
     }
 
-    private ResponseEntity<Map<String, Object>> validateRequiredStringListIn(Map<String, Object> request, String field, Set<String> allowed, String message) {
+    private ResponseEntity<Map<String, Object>> validateQueryDocumentId(Map<String, Object> request) {
+        ResponseEntity<Map<String, Object>> error = validateRequiredQueryString(request, "document_id");
+        if (error != null) {
+            return error;
+        }
+        String documentId = ((String) request.get("document_id")).trim();
+        if (!mockData.hasDocumentId(documentId)) {
+            return valueError("document_id", "document_id is not supported", "query");
+        }
+        return null;
+    }
+
+    private ResponseEntity<Map<String, Object>> validateRequiredQueryString(Map<String, Object> request, String field) {
+        Object value = request.get(field);
+        if (value == null) {
+            return missing(field, "query");
+        }
+        if (!isNonBlankString(value)) {
+            return valueError(field, field + " must be a non-empty string", "query");
+        }
+        return null;
+    }
+
+    private ResponseEntity<Map<String, Object>> validateRequiredBodyString(Map<String, Object> request, String field) {
         Object value = request.get(field);
         if (value == null) {
             return missing(field, "body");
         }
+        if (!isNonBlankString(value)) {
+            return valueError(field, field + " must be a non-empty string", "body");
+        }
+        return null;
+    }
+
+    private ResponseEntity<Map<String, Object>> validateRequiredStringList(Map<String, Object> request, String field, String location) {
+        Object value = request.get(field);
+        if (value == null) {
+            return missing(field, location);
+        }
         if (!(value instanceof List<?> values)) {
-            return valueError(field, field + " must be an array", "body");
+            return valueError(field, field + " must be an array", location);
         }
         if (values.isEmpty()) {
-            return valueError(field, field + " must not be empty", "body");
+            return valueError(field, field + " must not be empty", location);
         }
+        return validateStringListItems(values, field, location);
+    }
+
+    private ResponseEntity<Map<String, Object>> validateOptionalStringList(Map<String, Object> request, String field, String location) {
+        Object value = request.get(field);
+        if (!(value instanceof List<?> values)) {
+            return valueError(field, field + " must be an array", location);
+        }
+        return validateStringListItems(values, field, location);
+    }
+
+    private ResponseEntity<Map<String, Object>> validateStringListItems(List<?> values, String field, String location) {
         for (Object item : values) {
-            if (!isIn(item, allowed)) {
-                return valueError(field, message, "body");
+            if (!isNonBlankString(item)) {
+                return valueError(field, field + " must contain only non-empty strings", location);
             }
         }
         return null;
     }
 
     private ResponseEntity<Map<String, Object>> validateHops(Map<String, Object> request) {
-        Integer hops = positiveInt(request.get("hops"));
-        if (request.get("hops") != null && hops == null) {
-            return valueError("hops", "hops must be a positive integer", "body");
+        if (request.get("hops") == null) {
+            return null;
         }
-        if (hops != null && hops > 3) {
-            return valueError("hops", "hops must be no greater than 3", "body");
-        }
-        return null;
-    }
-
-    private ResponseEntity<Map<String, Object>> validatePage(Map<String, Object> request, String location) {
-        if (request.get("page_no") != null && positiveInt(request.get("page_no")) == null) {
-            return valueError("page_no", "page_no must be a positive integer", location);
-        }
-        Integer pageSize = positiveInt(request.get("page_size"));
-        if (request.get("page_size") != null && pageSize == null) {
-            return valueError("page_size", "page_size must be a positive integer no greater than 100", location);
-        }
-        if (pageSize != null && pageSize > 100) {
-            return valueError("page_size", "page_size must be a positive integer no greater than 100", location);
+        Integer hops = positiveBodyInt(request.get("hops"));
+        if (hops == null || hops > 3) {
+            return valueError("hops", "hops must be a JSON integer from 1 to 3", "body");
         }
         return null;
     }
 
-    // 时间范围校验：用于技术演化和合作强度分析。
-    private ResponseEntity<Map<String, Object>> validateDateRange(Map<String, Object> request) {
+    private ResponseEntity<Map<String, Object>> validateQueryPage(Map<String, Object> request) {
+        // GET 查询参数进入 Controller 后是字符串，这里按十进制正整数字符串严格校验。
+        if (request.get("page_no") != null && positiveQueryInt(request.get("page_no")) == null) {
+            return valueError("page_no", "page_no must be a positive integer", "query");
+        }
+        Integer pageSize = positiveQueryInt(request.get("page_size"));
+        if (request.get("page_size") != null && (pageSize == null || pageSize > 100)) {
+            return valueError("page_size", "page_size must be a positive integer no greater than 100", "query");
+        }
+        return null;
+    }
+
+    private ResponseEntity<Map<String, Object>> validateDateRange(Map<String, Object> request, String location) {
         LocalDate startDate = parseDate(request.get("start_date"));
         LocalDate endDate = parseDate(request.get("end_date"));
         if (request.get("start_date") != null && startDate == null) {
-            return valueError("start_date", "start_date must use YYYY-MM-DD format", "body");
+            return valueError("start_date", "start_date must use YYYY-MM-DD format", location);
         }
         if (request.get("end_date") != null && endDate == null) {
-            return valueError("end_date", "end_date must use YYYY-MM-DD format", "body");
+            return valueError("end_date", "end_date must use YYYY-MM-DD format", location);
         }
         if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
-            return valueError("end_date", "end_date must be greater than or equal to start_date", "body");
+            return valueError("end_date", "end_date must be greater than or equal to start_date", location);
         }
         return null;
     }
@@ -186,41 +274,68 @@ public class AppResearchValidator {
     }
 
     private ResponseEntity<Map<String, Object>> error(String field, String message, String type, String location) {
-        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
-                "detail", List.of(Map.of("loc", List.of(location, field), "msg", message, "type", type))
-        ));
+        Map<String, Object> errorItem = new LinkedHashMap<>();
+        errorItem.put("loc", List.of(location, field));
+        errorItem.put("msg", message);
+        errorItem.put("type", type);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("detail", List.of(errorItem));
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(response);
     }
 
     private boolean isBlank(Object value) {
-        return value == null || value.toString().trim().isEmpty();
+        return !(value instanceof String text) || text.trim().isEmpty();
     }
 
-    private boolean isIn(Object value, Set<String> allowed) {
-        return value instanceof String text && allowed.contains(text);
+    private boolean isNonBlankString(Object value) {
+        return value instanceof String text && !text.trim().isEmpty();
     }
 
     private boolean isOptionalIn(Object value, Set<String> allowed) {
-        return value == null || isIn(value, allowed);
+        return value == null || value instanceof String text && allowed.contains(text.trim());
     }
 
-    private Integer positiveInt(Object value) {
-        if (value == null) {
+    private Integer positiveQueryInt(Object value) {
+        if (!(value instanceof String text)) {
+            return null;
+        }
+        String normalized = text.trim();
+        if (!normalized.matches("\\d+")) {
             return null;
         }
         try {
-            int parsed = Integer.parseInt(value.toString().trim());
-            return parsed > 0 ? parsed : null;
+            long parsed = Long.parseLong(normalized);
+            if (parsed <= 0 || parsed > Integer.MAX_VALUE) {
+                return null;
+            }
+            return (int) parsed;
         } catch (NumberFormatException ignored) {
             return null;
         }
     }
 
+    private Integer positiveBodyInt(Object value) {
+        // POST JSON body 中的 integer 只接受整数类型，不接受 "2" 或 2.5。
+        if (!(value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long)) {
+            return null;
+        }
+        long parsed = ((Number) value).longValue();
+        if (parsed <= 0 || parsed > Integer.MAX_VALUE) {
+            return null;
+        }
+        return (int) parsed;
+    }
+
     private LocalDate parseDate(Object value) {
-        if (value == null || value.toString().trim().isEmpty()) {
+        if (value == null) {
+            return null;
+        }
+        if (!(value instanceof String text) || text.trim().isEmpty()) {
             return null;
         }
         try {
-            return LocalDate.parse(value.toString().trim());
+            return LocalDate.parse(text.trim());
         } catch (DateTimeParseException ignored) {
             return null;
         }

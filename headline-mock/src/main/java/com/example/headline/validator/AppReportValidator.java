@@ -1,9 +1,11 @@
 package com.example.headline.validator;
 
+import com.example.headline.mock.AppReportMockData;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -11,18 +13,23 @@ import java.util.Set;
 @Component
 public class AppReportValidator {
 
-    private static final Set<String> DOCUMENT_IDS = Set.of(
-            "report_001", "report_002", "report_003", "report_004", "report_005", "report_006", "report_007",
-            "report_week_001", "report_week_002", "report_week_003",
-            "report_month_001", "report_month_002", "report_month_003",
-            "report_year_001", "report_year_002", "report_year_003"
-    );
+    private static final Set<String> DOCUMENT_IDS = Set.of("report_001", "report_002", "report_003");
     private static final Set<String> USER_IDS = Set.of("user_001", "user_002");
-    private static final Set<String> VERSION_IDS = Set.of("report_001_v1", "report_001_v2", "report_001_v3", "report_003_v2");
+    private static final Set<String> VERSION_IDS = Set.of(
+            "report_001_v1", "report_001_v2", "report_001_v3",
+            "report_002_v1", "report_002_v2",
+            "report_003_v1", "report_003_v2"
+    );
     private static final Set<String> GRANULARITIES = Set.of("week", "month", "year");
     private static final Set<String> SORT_BY = Set.of("hotness", "citation");
 
-    // 通用报告 ID 校验：meta、file_url、versions 都复用这里。
+    private final AppReportMockData mockData;
+
+    public AppReportValidator(AppReportMockData mockData) {
+        this.mockData = mockData;
+    }
+
+    // 通用报告 ID 校验：meta、file_url、versions 复用这里。
     public ResponseEntity<Map<String, Object>> validateDocumentId(Map<String, Object> request) {
         return validateRequiredAllowed(request, "document_id", DOCUMENT_IDS, "document_id must be one of mock report ids");
     }
@@ -51,7 +58,7 @@ public class AppReportValidator {
         return userError == null ? validatePage(request) : userError;
     }
 
-    // 版本对比校验：两个版本都必须存在，且不能是同一个版本。
+    // 版本对比校验：两个版本都必须存在，并且不能是同一个版本。
     public ResponseEntity<Map<String, Object>> validateVersionDiff(Map<String, Object> request) {
         if (isBlank(request.get("version_id_a"))) {
             return missing("version_id_a");
@@ -65,8 +72,16 @@ public class AppReportValidator {
         if (!isIn(request.get("version_id_b"), VERSION_IDS)) {
             return valueError("version_id_b", "version_id_b must be one of " + VERSION_IDS);
         }
-        if (request.get("version_id_a").equals(request.get("version_id_b"))) {
+
+        String versionIdA = request.get("version_id_a").toString();
+        String versionIdB = request.get("version_id_b").toString();
+
+        if (versionIdA.equals(versionIdB)) {
             return valueError("version_id_b", "version_id_b must be different from version_id_a");
+        }
+        // 版本 ID 合法还不够，必须确认 MockData 中确实存在这个对比组合。
+        if (!mockData.hasVersionDiff(versionIdA, versionIdB)) {
+            return valueError("version_id_b", "the requested version comparison is not available");
         }
         return null;
     }
@@ -101,9 +116,14 @@ public class AppReportValidator {
     }
 
     private ResponseEntity<Map<String, Object>> error(String field, String message, String type) {
-        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
-                "detail", List.of(Map.of("loc", List.of("body", field), "msg", message, "type", type))
-        ));
+        Map<String, Object> errorItem = new LinkedHashMap<>();
+        errorItem.put("loc", List.of("body", field));
+        errorItem.put("msg", message);
+        errorItem.put("type", type);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("detail", List.of(errorItem));
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(response);
     }
 
     private boolean isBlank(Object value) {

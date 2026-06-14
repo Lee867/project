@@ -4,6 +4,8 @@ com\example\headline\controller\AppQaController.class
 com\example\headline\service\AppEventService.class
 com\example\headline\service\AppQaService.class
 com\example\headline\service\AppReportService.class
+com\example\headline\mock\AppReportMockData.class
+com\example\headline\mock\AppHeadlineMockData.class
 com\example\headline\service\AppResearchService.class
 com\example\headline\validator\AppReportValidator.class
 com\example\headline\validator\AppQaValidator.class

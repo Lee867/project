@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/app/report")
+@RequestMapping(value = "/app/report", produces = "application/json;charset=UTF-8")
 public class AppReportController {
 
     private final AppReportService appReportService;
@@ -22,7 +22,7 @@ public class AppReportController {
         this.appReportValidator = appReportValidator;
     }
 
-    // 报告元数据：根据 document_id 返回报告标题、摘要、来源、作者等结构化信息。
+    // 报告元数据：根据 document_id 返回标题、摘要、来源、作者等结构化信息。
     @PostMapping("/meta")
     public ResponseEntity<Map<String, Object>> meta(@RequestBody Map<String, Object> request) {
         ResponseEntity<Map<String, Object>> error = appReportValidator.validateDocumentId(request);
@@ -32,7 +32,7 @@ public class AppReportController {
         return ResponseEntity.ok(appReportService.meta(request));
     }
 
-    // 报告全文访问：返回源文档文件 URL，供 APP 端打开或预览。
+    // 报告全文访问：返回源文档文件 URL，供 APP 打开或预览。
     @PostMapping("/file_url")
     public ResponseEntity<Map<String, Object>> fileUrl(@RequestBody Map<String, Object> request) {
         ResponseEntity<Map<String, Object>> error = appReportValidator.validateDocumentId(request);
@@ -82,7 +82,7 @@ public class AppReportController {
         return ResponseEntity.ok(appReportService.versionDiff(request));
     }
 
-    // 更新提醒：返回用户收藏报告中的新版本提示。
+    // 更新提醒：返回用户关注报告中的新版本提示。
     @PostMapping("/update_notice")
     public ResponseEntity<Map<String, Object>> updateNotice(@RequestBody Map<String, Object> request) {
         ResponseEntity<Map<String, Object>> error = appReportValidator.validateUserId(request);

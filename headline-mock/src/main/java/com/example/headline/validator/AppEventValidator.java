@@ -1,9 +1,11 @@
 package com.example.headline.validator;
 
+import com.example.headline.mock.AppEventMockData;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -11,26 +13,37 @@ import java.util.Set;
 @Component
 public class AppEventValidator {
 
-    private static final Set<String> TOPIC_IDS = Set.of("topic_001", "topic_002", "topic_003");
-    private static final Set<String> TOPIC_NAMES = Set.of("AI infrastructure trend", "Low-altitude economy development", "Advanced semiconductor supply chain");
-    private static final Set<String> DOCUMENT_IDS = Set.of("doc_001", "doc_002", "doc_003", "doc_004");
     private static final Set<String> GRANULARITIES = Set.of("year", "month");
 
-    // 时间线校验：topic_name 必填，granularity 只能是 year 或 month。
+    private final AppEventMockData mockData;
+
+    public AppEventValidator(AppEventMockData mockData) {
+        this.mockData = mockData;
+    }
+
+    // 时间线校验：topic_name 必填，granularity 可选且只能是 year 或 month。
     public ResponseEntity<Map<String, Object>> validateTimeline(Map<String, Object> request) {
         if (isBlank(request.get("topic_name"))) {
             return missing("topic_name");
         }
-        if (!isIn(request.get("topic_name"), TOPIC_NAMES)) {
-            return valueError("topic_name", "topic_name must be one of " + TOPIC_NAMES);
+        if (!(request.get("topic_name") instanceof String topicName)) {
+            return valueError("topic_name", "topic_name must be a string");
         }
-        if (!isOptionalIn(request.get("granularity"), GRANULARITIES)) {
-            return valueError("granularity", "granularity must be year or month");
+        if (!mockData.hasTopicName(topicName.trim())) {
+            return valueError("topic_name", "topic_name is not supported");
+        }
+        if (request.get("granularity") != null) {
+            if (!(request.get("granularity") instanceof String granularity) || granularity.trim().isEmpty()) {
+                return valueError("granularity", "granularity must be year or month");
+            }
+            if (!GRANULARITIES.contains(granularity.trim())) {
+                return valueError("granularity", "granularity must be year or month");
+            }
         }
         return null;
     }
 
-    // 主题选择器校验：topic_id 和 topic_name 二选一即可。
+    // 主题选择器校验：topic_id 和 topic_name 二选一；两个都传时必须匹配同一主题。
     public ResponseEntity<Map<String, Object>> validateTopicSelector(Map<String, Object> request) {
         return validateTopicIdOrName(request);
     }
@@ -40,29 +53,50 @@ public class AppEventValidator {
         return selectorError == null ? validatePage(request) : selectorError;
     }
 
-    // 文档反向溯源校验：document_id 必填，并且必须是白名单中的文档。
+    // 文档反向溯源校验：document_id 必填，并且必须存在于 Mock 数据中。
     public ResponseEntity<Map<String, Object>> validateSourceTopics(Map<String, Object> request) {
         if (isBlank(request.get("document_id"))) {
             return missing("document_id");
         }
-        if (!isIn(request.get("document_id"), DOCUMENT_IDS)) {
-            return valueError("document_id", "document_id must be one of " + DOCUMENT_IDS);
+        if (!(request.get("document_id") instanceof String documentId)) {
+            return valueError("document_id", "document_id must be a string");
+        }
+        if (!mockData.hasDocumentId(documentId.trim())) {
+            return valueError("document_id", "document_id is not supported");
         }
         return validatePage(request);
     }
 
-    // topic_id/topic_name 至少传一个；如果两个都传，则两个都必须合法。
     private ResponseEntity<Map<String, Object>> validateTopicIdOrName(Map<String, Object> request) {
+        // topic_id/topic_name 二选一；两个都传时必须指向同一个 Mock 主题。
         boolean hasTopicId = !isBlank(request.get("topic_id"));
         boolean hasTopicName = !isBlank(request.get("topic_name"));
         if (!hasTopicId && !hasTopicName) {
             return missing("topic_id");
         }
-        if (hasTopicId && !isIn(request.get("topic_id"), TOPIC_IDS)) {
-            return valueError("topic_id", "topic_id must be one of " + TOPIC_IDS);
+
+        String topicId = null;
+        String topicName = null;
+        if (hasTopicId) {
+            if (!(request.get("topic_id") instanceof String text)) {
+                return valueError("topic_id", "topic_id must be a string");
+            }
+            topicId = text.trim();
+            if (!mockData.hasTopicId(topicId)) {
+                return valueError("topic_id", "topic_id is not supported");
+            }
         }
-        if (hasTopicName && !isIn(request.get("topic_name"), TOPIC_NAMES)) {
-            return valueError("topic_name", "topic_name must be one of " + TOPIC_NAMES);
+        if (hasTopicName) {
+            if (!(request.get("topic_name") instanceof String text)) {
+                return valueError("topic_name", "topic_name must be a string");
+            }
+            topicName = text.trim();
+            if (!mockData.hasTopicName(topicName)) {
+                return valueError("topic_name", "topic_name is not supported");
+            }
+        }
+        if (topicId != null && topicName != null && !mockData.topicMatches(topicId, topicName)) {
+            return valueError("topic_name", "topic_id and topic_name do not match");
         }
         return null;
     }
@@ -86,21 +120,18 @@ public class AppEventValidator {
     }
 
     private ResponseEntity<Map<String, Object>> error(String field, String message, String type) {
-        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
-                "detail", List.of(Map.of("loc", List.of("query", field), "msg", message, "type", type))
-        ));
+        Map<String, Object> errorItem = new LinkedHashMap<>();
+        errorItem.put("loc", List.of("query", field));
+        errorItem.put("msg", message);
+        errorItem.put("type", type);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("detail", List.of(errorItem));
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(response);
     }
 
     private boolean isBlank(Object value) {
-        return value == null || value.toString().trim().isEmpty();
-    }
-
-    private boolean isIn(Object value, Set<String> allowed) {
-        return value instanceof String text && allowed.contains(text);
-    }
-
-    private boolean isOptionalIn(Object value, Set<String> allowed) {
-        return value == null || isIn(value, allowed);
+        return !(value instanceof String text) || text.trim().isEmpty();
     }
 
     private boolean isOptionalPositiveInt(Object value) {
@@ -113,10 +144,22 @@ public class AppEventValidator {
     }
 
     private Integer positiveInt(Object value) {
+        if (!(value instanceof String text)) {
+            return null;
+        }
+
+        String normalized = text.trim();
+        if (!normalized.matches("\\d+")) {
+            return null;
+        }
+
         try {
-            int parsed = Integer.parseInt(value.toString().trim());
-            return parsed > 0 ? parsed : null;
-        } catch (Exception ignored) {
+            long parsed = Long.parseLong(normalized);
+            if (parsed <= 0 || parsed > Integer.MAX_VALUE) {
+                return null;
+            }
+            return (int) parsed;
+        } catch (NumberFormatException ignored) {
             return null;
         }
     }

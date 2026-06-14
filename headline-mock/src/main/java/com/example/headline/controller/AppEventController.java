@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/app/event")
+@RequestMapping(value = "/app/event", produces = "application/json;charset=UTF-8")
 public class AppEventController {
 
     private final AppEventService appEventService;

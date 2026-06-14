@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -26,6 +27,9 @@ public class AppHeadlineValidator {
     public ResponseEntity<Map<String, Object>> validateTopicClues(Map<String, Object> request) {
         if (isBlank(request.get("topic"))) {
             return missing("topic");
+        }
+        if (!(request.get("topic") instanceof String)) {
+            return valueError("topic", "topic must be a string");
         }
         if (request.get("doc_types") != null && !isStringListIn(request.get("doc_types"), DOCUMENT_TYPES)) {
             return valueError("doc_types", "doc_types must be an array using allowed document types");
@@ -62,6 +66,9 @@ public class AppHeadlineValidator {
             if (isBlank(conditionMap.get("keyword"))) {
                 return missing("conditions." + i + ".keyword");
             }
+            if (!(conditionMap.get("keyword") instanceof String)) {
+                return valueError("conditions." + i + ".keyword", "keyword must be a string");
+            }
             if (!isOptionalIn(conditionMap.get("match_mode"), MATCH_MODES)) {
                 return valueError("conditions." + i + ".match_mode", "match_mode must be fuzzy or exact");
             }
@@ -77,6 +84,9 @@ public class AppHeadlineValidator {
         }
         if (!isOptionalIn(request.get("sort_order"), SORT_ORDER)) {
             return valueError("sort_order", "sort_order must be desc or asc");
+        }
+        if (request.get("with_entity_info") != null && !(request.get("with_entity_info") instanceof Boolean)) {
+            return valueError("with_entity_info", "with_entity_info must be a boolean");
         }
         return validatePage(request);
     }
@@ -107,7 +117,7 @@ public class AppHeadlineValidator {
         }
         return null;
     }
-
+    // 分页参数来自 JSON body，只接受真正的 JSON integer。
     private ResponseEntity<Map<String, Object>> validatePage(Map<String, Object> request) {
         if (!isOptionalPositiveInt(request.get("page_no"))) {
             return valueError("page_no", "page_no must be a positive integer");
@@ -127,9 +137,14 @@ public class AppHeadlineValidator {
     }
 
     private ResponseEntity<Map<String, Object>> error(String fieldName, String message, String type) {
-        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
-                "detail", List.of(Map.of("loc", List.of("body", fieldName), "msg", message, "type", type))
-        ));
+        Map<String, Object> errorItem = new LinkedHashMap<>();
+        errorItem.put("loc", List.of("body", fieldName));
+        errorItem.put("msg", message);
+        errorItem.put("type", type);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("detail", List.of(errorItem));
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(response);
     }
 
     private boolean isBlank(Object value) {
@@ -178,12 +193,11 @@ public class AppHeadlineValidator {
     }
 
     private Integer positiveInt(Object value) {
-        try {
-            int parsed = Integer.parseInt(value.toString().trim());
-            return parsed > 0 ? parsed : null;
-        } catch (Exception ignored) {
+        if (!(value instanceof Integer || value instanceof Long || value instanceof Short || value instanceof Byte)) {
             return null;
         }
+        int parsed = ((Number) value).intValue();
+        return parsed > 0 ? parsed : null;
     }
 
     private LocalDate parseDate(Object value) {

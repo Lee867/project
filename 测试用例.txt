@@ -1,0 +1,35 @@
+头条模块
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/app/headline/topic_clues" -ContentType "application/json; charset=utf-8" -Body (@{ topic="AI infrastructure trend"; doc_types=@("report"); countries=@("China"); start_date="2026-01-01"; end_date="2026-12-31"; page_no=1; page_size=20 } | ConvertTo-Json -Depth 10) | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/app/headline/filter_clues" -ContentType "application/json; charset=utf-8" -Body (@{ conditions=@(@{ field="keywords"; keyword="AI chips"; match_mode="fuzzy"; combine_mode="AND" }); target_type="document"; sort_by="publication_date"; sort_order="desc"; page_no=1; page_size=20; with_entity_info=$true } | ConvertTo-Json -Depth 10) | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/app/headline/clue_detail" -ContentType "application/json; charset=utf-8" -Body (@{ clue_id="clue_001" } | ConvertTo-Json -Depth 10) | ConvertTo-Json -Depth 20
+
+热门报告模块
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/app/report/meta" -ContentType "application/json; charset=utf-8" -Body (@{ document_id="report_001" } | ConvertTo-Json -Depth 10) | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/app/report/file_url" -ContentType "application/json; charset=utf-8" -Body (@{ document_id="report_001" } | ConvertTo-Json -Depth 10) | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/app/report/rank" -ContentType "application/json; charset=utf-8" -Body (@{ granularity="week"; sort_by="hotness"; page_no=1; page_size=2 } | ConvertTo-Json -Depth 10) | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/app/report/recommend" -ContentType "application/json; charset=utf-8" -Body (@{ user_id="user_001"; page_no=1; page_size=2 } | ConvertTo-Json -Depth 10) | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/app/report/versions" -ContentType "application/json; charset=utf-8" -Body (@{ document_id="report_001" } | ConvertTo-Json -Depth 10) | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/app/report/version_diff" -ContentType "application/json; charset=utf-8" -Body (@{ version_id_a="report_001_v1"; version_id_b="report_001_v2" } | ConvertTo-Json -Depth 10) | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/app/report/update_notice" -ContentType "application/json; charset=utf-8" -Body (@{ user_id="user_001" } | ConvertTo-Json -Depth 10) | ConvertTo-Json -Depth 20
+
+
+重大事件模块
+Invoke-RestMethod -Method Get -Uri "http://localhost:8080/app/event/timeline?topic_name=AI%20infrastructure%20trend&granularity=year" | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Get -Uri "http://localhost:8080/app/event/structured_info?topic_id=topic_001" | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Get -Uri "http://localhost:8080/app/event/relation_graph?topic_name=AI%20infrastructure%20trend" | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Get -Uri "http://localhost:8080/app/event/source_docs?topic_id=topic_001&page_no=1&page_size=20" | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Get -Uri "http://localhost:8080/app/event/source_topics?document_id=doc_001&page_no=1&page_size=20" | ConvertTo-Json -Depth 20
+
+研究成果模块
+Invoke-RestMethod -Method Get -Uri "http://localhost:8080/app/research/meta?document_id=research_001" | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Get -Uri "http://localhost:8080/app/research/citation_list?document_id=research_001&citation_type=reference&page_no=1&page_size=20" | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/app/research/author_collab" -ContentType "application/json; charset=utf-8" -Body '{"author_ids":["author_001"],"hops":2}' | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/app/research/institution_collab" -ContentType "application/json; charset=utf-8" -Body '{"institution_ids":["inst_001"],"hops":2}' | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/app/research/tech_evolution" -ContentType "application/json; charset=utf-8" -Body '{"keyword":"edge AI","ipc_code":"G06N","start_date":"2026-01-01","end_date":"2026-12-31","granularity":"year","max_nodes":50,"node_size_metric":"PAPER_COUNT"}' | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/app/research/citation_trend" -ContentType "application/json; charset=utf-8" -Body '{"document_ids":["research_001","research_002"],"granularity":"year"}' | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/app/research/collab_strength" -ContentType "application/json; charset=utf-8" -Body '{"target_type":"author","target_ids":["author_001"]}' | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/app/research/brief_list" -ContentType "application/json; charset=utf-8" -Body '{"document_ids":["research_001","research_003"]}' | ConvertTo-Json -Depth 20
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/app/research/export" -ContentType "application/json; charset=utf-8" -Body '{"document_ids":["research_001","research_003"],"export_format":"pdf"}' | ConvertTo-Json -Depth 20
+
+问答模块
+Invoke-RestMethod -Method Post -Uri "http://localhost:8080/app/qa/ask" -ContentType "application/json; charset=utf-8" -Headers @{Accept="application/json"} -Body '{"query":"What is the AI infrastructure trend?","session_id":"session_001","thinking":false,"traceable":true,"knowledge_sources":[{"knowledge_type":"document","knowledge_id":"report_001"}],"verbosity":"structured","is_stream":false}' | ConvertTo-Json -Depth 20
